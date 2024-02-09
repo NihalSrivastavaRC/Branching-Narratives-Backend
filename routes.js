@@ -2,6 +2,9 @@ const express = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
+const createDOMPurify = require("dompurify");
+const { JSDOM } = require("jsdom");
+
 const { isLoggedIn } = require("./middleware");
 const { Story, User } = require("./models");
 
@@ -10,6 +13,22 @@ const { fit, transform, find_similar } = require("./tfidf");
 const router = express.Router();
 const saltRounds = 10;
 const SECRET = "secret_key";
+
+function sortByFrequency(array) {
+  var frequency = {};
+
+  array.forEach(function (value) {
+    frequency[value] = 0;
+  });
+
+  var uniques = array.filter(function (value) {
+    return ++frequency[value] == 1;
+  });
+
+  return uniques.sort(function (a, b) {
+    return frequency[b] - frequency[a];
+  });
+}
 
 router.post("/register", async (req, res) => {
   const { username, password, penName } = req.body;
@@ -61,9 +80,40 @@ router.get("/getUser", isLoggedIn, async (req, res) => {
   }
 });
 
+router.get("/getUserGenre", isLoggedIn, async (req, res) => {
+  const { username } = req.user;
+
+  try {
+    const stories = await Story.find({ username: username });
+    const genres = stories.map((story) => story.genre.toLowerCase());
+    const sorted_genres = sortByFrequency(genres);
+    res.send(sorted_genres.slice(0, 5));
+  } catch {
+    console.error(error);
+    res.status(500).send(error);
+  }
+});
+
+router.get("/getPopularUserStories", isLoggedIn, async (req, res) => {
+  const { username } = req.user;
+
+  try {
+    const stories = await Story.find({ username: username });
+    const sortedStories = stories.sort(function (a, b) {
+      return b.forkCount - a.forkCount;
+    });
+    const titles = sortedStories.slice(0, 5).map((story) => story.title);
+    res.send(titles);
+  } catch {
+    console.error(error);
+    res.status(500).send(error);
+  }
+});
+
 router.post("/createStory", isLoggedIn, async (req, res) => {
   const { username } = req.user;
-  const { title, genre, description, visibility, commit_history } = req.body;
+  const { title, genre, description, visibility, commit_history, forkedFrom } =
+    req.body;
 
   try {
     const story = new Story({
@@ -73,6 +123,7 @@ router.post("/createStory", isLoggedIn, async (req, res) => {
       visibility,
       username,
       commit_history,
+      forkedFrom,
     });
     await story.save();
     res.send(story);
@@ -109,18 +160,21 @@ router.post("/updateStory", isLoggedIn, async (req, res) => {
   const { title, content, commitMessage } = req.body;
 
   try {
-    const filter = { title: title, username: username };
-    const update = { content: content };
+    const window = new JSDOM("").window;
+    const DOMPurify = createDOMPurify(window);
+    const clean = DOMPurify.sanitize(content, { USE_PROFILES: { html: true } });
 
+    const filter = { title: title, username: username };
+    // const update = { content: clean };
     // const update_doc = await Story.updateOne(filter, [{ $set: update }]);
+
     const new_commit = {
       commitMessage: commitMessage,
-      content: content,
+      content: clean,
       time: Date.now(),
     };
     Story.findOneAndUpdate(filter, { $push: { commit_history: new_commit } })
       .then((response) => {
-        console.log(response);
         res.send("story updated successfully");
       })
       .catch((err) => {
@@ -168,6 +222,24 @@ router.post("/getSimilarStories", async (req, res) => {
       similar_stores.push(stories[indexes[i]]);
     }
     res.send(similar_stores);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send(error);
+  }
+});
+
+router.post("/incrementForkCounter", isLoggedIn, async (req, res) => {
+  const { title, username } = req.body;
+  try {
+    const filter = { username: username, title: title };
+    Story.findOneAndUpdate(filter, { $inc: { forkCount: 1 } })
+      .then((response) => {
+        console.log(response);
+        res.send("story updated successfully");
+      })
+      .catch((err) => {
+        console.log(err);
+      });
   } catch (error) {
     console.error(error);
     res.status(500).send(error);

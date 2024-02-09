@@ -40,6 +40,14 @@ const StorySchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  forkCount: {
+    type: Number,
+    default: 0,
+  },
+  forkedFrom: {
+    type: String,
+    required: false,
+  },
 });
 
 const UserSchema = new mongoose.Schema({
