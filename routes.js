@@ -68,6 +68,15 @@ router.post("/login", async (req, res) => {
   }
 });
 
+router.get("/isloggedIn", isLoggedIn, async (req, res) => {
+  try {
+    res.send("logged in");
+  } catch {
+    console.error(error);
+    res.status(500).send(error);
+  }
+});
+
 router.get("/getUser", isLoggedIn, async (req, res) => {
   const { username } = req.user;
 
@@ -234,7 +243,6 @@ router.post("/incrementForkCounter", isLoggedIn, async (req, res) => {
     const filter = { username: username, title: title };
     Story.findOneAndUpdate(filter, { $inc: { forkCount: 1 } })
       .then((response) => {
-        console.log(response);
         res.send("story updated successfully");
       })
       .catch((err) => {
